@@ -18,12 +18,6 @@ import modbus.defines as cst
 from modbus import modbus_rtu
 
 
-LOGGER = logging.getLogger("main")
-LOGGER.setLevel(logging.DEBUG)
-
-uart_tx = machine.Pin(16)
-uart_rx = machine.Pin(17)
-
 # pin_cts = machine.Pin(machine.Pin.cpu.G9, machine.Pin.OUT)
 
 # def serial_prep(mode):
@@ -44,33 +38,66 @@ uart_rx = machine.Pin(17)
 #     else:
 #         raise ValueError("Given 'mode' does not have a defined action")
 
-def main():
-    LOGGER.info("Opening UART0")
-    uart = machine.UART(
-        0, tx=uart_tx, rx=uart_rx,
-        baudrate=9600, bits=8, parity=None, stop=1, timeout=2000, timeout_char=100,
-    )
 
-    # master = modbus_rtu.RtuMaster(uart, serial_prep_cb=serial_prep)
-    master = modbus_rtu.RtuMaster(uart)
-    LOGGER.info('Setting verbose')
-    master.set_verbose(True)
+class DTS6619:
+    DATA_ADDRESS_MAP = {
+        'line_a_voltage': 0x00,
+        'line_b_voltage': 0x02,
+        'line_c_voltage': 0x04,
+        'line_a_current': 0x08,
+        'line_b_current': 0x0A,
+        'line_c_current': 0x0C,
+        'total_active_power': 0x10,
+        'line_a_active_power': 0x12,
+        'line_b_active_power': 0x14,
+        'line_c_active_power': 0x16,
+        'total_reactive_power': 0x18,
+        'line_a_reactive_power': 0x1A,
+        'line_b_reactive_power': 0x1C,
+        'line_c_reactive_power': 0x1E,
+        'line_a_power_factor': 0x2A,
+        'line_b_power_factor': 0x2C,
+        'line_c_power_factor': 0x2E,
+        'frequency': 0x36,
+        'total_active_power': 0x100,
+        'total_reactive_power': 0x400,
+    }
 
+    def __init__(self, uart_data, device_address, verbose=False):
+        readable_uart = '_'.join(map(str, uart_data))
+        self._logger = logging.getLogger(f"modbus_rtu.uart_{readable_uart}.d{device_address}")
 
-    LOGGER.info("Reading from register 0x00")
-    # 'execute' returns a pair of 16-bit words
-    f_word_pair = master.execute(1, cst.READ_INPUT_REGISTERS, 0x00, 2)
-    # Re-pack the pair of words into a single byte, then un-pack into a float
-    volts = struct.unpack('<f', struct.pack('<h', int(f_word_pair[1])) + struct.pack('<h', int(f_word_pair[0])))[0]
-    print(volts)
+        self._address = device_address
+        
+        uart_id = uart_data[0]
+        uart_tx = machine.Pin(uart_data[1])
+        uart_rx = machine.Pin(uart_data[2]) 
 
-    # LOGGER.info("Reading from register 0x06")
-    # # 'execute' returns a pair of 16-bit words
-    # f_word_pair = master.execute(51, cst.READ_INPUT_REGISTERS, 0x06, 2)
-    # # Re-pack the pair of words into a single byte, then un-pack into a float
-    # amps = struct.unpack('<f', struct.pack('<h', int(f_word_pair[1])) + struct.pack('<h', int(f_word_pair[0])))[0]
+        self._uart = machine.UART(
+            uart_id, tx=uart_tx, rx=uart_rx,
+            baudrate=9600, bits=8, parity=uart_data[3], stop=1,
+            timeout=1000, timeout_char=100,
+        )
+        self._modbus = modbus_rtu.RtuMaster(self._uart)
+        if verbose:
+            self._logger.setLevel(logging.DEBUG)
+            self._logger.info('Setting verbose')
+            self._modbus.set_verbose(True)
+        else:
+            self._logger.setLevel(logging.INFO)
 
-    # LOGGER.info("Measured from Line 1:\r\nVolts: {}\r\nAmps: {}".format(volts, amps))
+    def execute(self, *args, **kwargs):
+        return self._modbus.execute(*args, **kwargs)
+    
+    def decode_data(self, word_pair):
+        return struct.unpack('<f', struct.pack('<h', int(word_pair[1])) + struct.pack('<h', int(word_pair[0])))[0]
 
-if __name__ == "__main__":
-    main()
+    def read(self, register_name):
+        if not register_name in self.DATA_ADDRESS_MAP:
+            raise ValueError(f'Unknown register name: {register_name}')
+
+        register = self.DATA_ADDRESS_MAP[register_name]
+        self._logger.info(f"Reading from register {register}")
+        f_word_pair = self._modbus.execute(self._address, cst.READ_INPUT_REGISTERS, register, 2)
+        return self.decode_data(f_word_pair)
+
