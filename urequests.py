@@ -17,7 +17,7 @@ class Response:
     def content(self):
         if self._cached is None:
             try:
-                self._cached = self.raw.recv(4096)
+                self._cached = self.raw.read()
             finally:
                 self.raw.close()
                 self.raw = None
@@ -79,7 +79,6 @@ def request(method, url, data=None, json=None, headers={}, stream=None):
             s.write(data)
 
         l = s.readline()
-        #print(l)
         l = l.split(None, 2)
         status = int(l[1])
         reason = ""
