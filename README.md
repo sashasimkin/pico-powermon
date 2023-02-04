@@ -1,3 +1,8 @@
+## About
+Raspberry pi pico W-based project to monitor electrical power consumption & basic environment data.
+
+Power consumtion is collected over Modbus-RTU protocal from DTS6619 counter.
+
 ## Quickstart
 
 ```
