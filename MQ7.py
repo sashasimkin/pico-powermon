@@ -7,6 +7,31 @@ from micropython import const
 import utime
 from math import exp, log
 
+
+# Usage example running in a separate thread due to all these crazy sleeps
+# # green - GP26 - MQ-7
+# co_pin = Pin(26, Pin.IN, Pin.PULL_DOWN)
+# mq7 = MQ7(co_pin)
+# # Calibration at home w/ 10K resistor
+# mq7.calibrate(-0.3823476)
+
+
+# co_reading = None
+
+# def update_co_reading():
+#     global co_reading
+#     while True:
+#         try:
+#             co_reading = mq7.readCarbonMonoxide()
+#         except Exception as e:
+#             print("Failed to read CO data")
+#             print(e)
+# import _thread
+# _thread.start_new_thread(update_co_reading, ())
+
+# watchdog.feed()
+
+
 class BaseMQ(object):
     ## Measuring attempts in cycle
     MQ_SAMPLE_TIMES = const(5)
