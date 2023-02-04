@@ -2,4 +2,5 @@ secrets.py
 .picowgo
 __pycache__/
 .vscode/
+build/
 
