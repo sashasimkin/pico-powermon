@@ -185,7 +185,7 @@ async def main(
         
         last_readings['power_data'] = power_data
         if power_data:
-            print("About to send power_data:", env_data)
+            print("About to send power_data:", power_data)
             try:
                 metrics_sender.send_metric(
                     'power',
