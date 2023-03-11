@@ -1,24 +1,26 @@
 import time
 import machine
 from machine import Pin
-import network
 import uasyncio
 import gc
 
-from master_modbus import DTS6619
-from dht import DHT11
-from mq135 import MQ135
-from net_metrics import MetricsSender, connect
 from watchdog_timer import WatchdogTimer
+
+from dts6619_modbus import DTS6619
+from dht import DHT22
+from mq135 import MQ135
+
+import network
+from net_metrics import MetricsSender, connect
+
 from control_server import app
 
 from configurator import get_configurator
 
+config = get_configurator()
+
 # We gotta signal boiiii
 led = Pin("LED", Pin.OUT)
-
-
-config = get_configurator()
 
 wlan_reset_pin = machine.Pin(19, Pin.IN, Pin.PULL_UP)
 
@@ -33,10 +35,10 @@ if wlan_reset_pin.value() == 0:
 # Any operation longer than that will fail WD feeding and will reboot the board
 # Sometimes request sending or connecting to WiFi can take longer
 # Therefore we have own watchdog_timer that based on Timers and capable of bigger resolution
-watchdog = WatchdogTimer(timeout=config.get('watchdog_timeout') * 1000)
+watchdog = WatchdogTimer(timeout=config.get('watchdog_timeout', 60) * 1000)
 
 # We need them, internets
-if config.get('wlan_ssid') == None:  # If no SSID configured - we setup default AP in order to access configuration & stats
+if config.get('wlan_ssid', None) == None:  # If no SSID configured - we setup default AP in order to access configuration & stats
     ap = network.WLAN(network.AP_IF)
     ap.config(ssid='PICO-POWERMON', key='0987654321')
     app.wlan = ap
@@ -49,6 +51,7 @@ else:
 
 watchdog.feed()
 
+parity_map = {'O': 1, 'E': 0, 'N': None}
 
 # Exposing it for external access by the `main` routine
 last_readings = {}
@@ -57,30 +60,29 @@ app.last_readings = last_readings
 
 
 async def main(
-        send_interval=config.get('send_metrics_interval'),
-        deployment_location=config.get('deployment_location'),
-        failures_limit=5, watchdog=None,
+        watchdog,  # This is the only required argument - we gotta feed it
+        send_interval=config.get('send_metrics_interval', 30),
+        deployment_location=config.get('deployment_location', 'undefined'),
+        failures_limit=5,
     ):
     """
     Main probing loop
     Yes it blocks in a multiple places, which can make server slower or not that reliable
     Such is life right now though, so it'll have to stay that way /shrug
     """
-    # Global CO reading updated on second thread
-    # global co_reading
-    try:
+    if config.get('metrics_username', None) is None:
+        print("Metrics target is not configured, metrics will be collected but won't be sent")
+        metrics_sender = None
+    else:
         metrics_sender = MetricsSender(
             config.get('metrics_instance'),
             config.get('metrics_username'), config.get('metrics_password'),
         )
-    except Exception as e:
-        print("Can't initiate metrics sender", e)
-        metrics_sender = None
 
     # Temp & humidity
-    # yellow - GP22 - DHT11
+    # yellow - GP22 - DHT22
     dht_pin = Pin(22, Pin.IN, Pin.PULL_DOWN)
-    dht_sensor = DHT11(dht_pin)
+    dht_sensor = DHT22(dht_pin)
 
     # CO2 sensor
     # This is how you calibrate the thing, with rzero OR corrected_rzero
@@ -94,7 +96,10 @@ async def main(
     mq135 = MQ135(27)
 
     # Power meter
-    power_counter = DTS6619((0, 16, 17, 1), 51)
+    try:
+        power_meter = DTS6619((0, 16, 17, parity_map[config.get('meter_parity')]), config.get('meter_address'))
+    except KeyError:
+        power_meter = None
 
     send_failures = 0
 
@@ -113,16 +118,14 @@ async def main(
 
         try:
             dht_sensor.measure()
-            temperature = dht_sensor.temperature()
-            humidity = dht_sensor.humidity()
             env_data.update({
-                'temperature': temperature,
-                'humidity': humidity,
+                'temperature': dht_sensor.temperature(),
+                'humidity': dht_sensor.humidity(),
             })
         except Exception as e:
             print(f"failed to get temp/humidity: {e}")
         
-        if watchdog is not None: watchdog.feed()
+        watchdog.feed()
 
         if 'temperature' in env_data and 'humidity' in env_data:
             try:
@@ -137,30 +140,24 @@ async def main(
         else:
             print("skipping co2 probe because no temp/humidity data")
 
-        if watchdog is not None: watchdog.feed()
+        watchdog.feed()
 
         power_data = {}
         try:
+            power_data.update(power_meter.read_multiple('line_a_voltage', 3))
+            power_data.update(power_meter.read_multiple('line_a_current', 3))
+            power_data.update(power_meter.read_multiple('sum_active_power', 8))
+            power_data.update(power_meter.read_multiple('line_a_power_factor', 3))
             power_data.update({
-                'line_a_voltage': power_counter.read('line_a_voltage'),
-                'line_b_voltage': power_counter.read('line_b_voltage'),
-                'line_c_voltage': power_counter.read('line_c_voltage'),
-                'line_a_current': power_counter.read('line_a_current'),
-                'line_b_current': power_counter.read('line_b_current'),
-                'line_c_current': power_counter.read('line_c_current'),
-                'line_a_active_power': power_counter.read('line_a_active_power'),
-                'line_b_active_power': power_counter.read('line_b_active_power'),
-                'line_c_active_power': power_counter.read('line_c_active_power'),
-                'sum_active_power': power_counter.read('sum_active_power'),
-                'sum_reactive_power': power_counter.read('sum_reactive_power'),
-                'total_watts': power_counter.read('total_active_power'),
-                'total_watts_reactive': power_counter.read('total_reactive_power'),
+                'frequency': power_meter.read('frequency'),
+                'total_watts': power_meter.read('total_active_power'),
+                'total_watts_reactive': power_meter.read('total_reactive_power'),
             })
         except Exception as e:
             print(f'exception collecting power data: {e}', power_data)
             print(e)
 
-        if watchdog is not None: watchdog.feed()
+        watchdog.feed()
 
         gc.collect()
         last_readings['env_data'] = env_data
@@ -179,7 +176,7 @@ async def main(
                 last_readings['env_data_exc'] = str(e)
                 print(f'No can send env data: {e}')
 
-            if watchdog is not None: watchdog.feed()
+            watchdog.feed()
         else:
             print("No environment data to send, sorrey!")
         
@@ -187,10 +184,41 @@ async def main(
         if power_data:
             print("About to send power_data:", power_data)
             try:
-                metrics_sender.send_metric(
+                metrics_sender.send_metrics_multi(
                     'power',
                     {'localtion': deployment_location,},
-                    power_data,
+                    {
+                        "voltage": {
+                            "line=A": power_data['line_a_voltage'],
+                            "line=B": power_data['line_b_voltage'],
+                            "line=C": power_data['line_c_voltage'],
+                        },
+                        "current": {
+                            "line=A": power_data['line_a_current'],
+                            "line=B": power_data['line_b_current'],
+                            "line=C": power_data['line_c_current'],
+                        },
+                        "watts_active": {
+                            "line=A": power_data['line_a_active_power'],
+                            "line=B": power_data['line_b_active_power'],
+                            "line=C": power_data['line_c_active_power'],
+                            "line=ALL": power_data['sum_active_power'],
+                        },
+                        "watts_reactive": {
+                            "line=A": power_data['line_a_reactive_power'],
+                            "line=B": power_data['line_b_reactive_power'],
+                            "line=C": power_data['line_c_reactive_power'],
+                            "line=ALL": power_data['sum_reactive_power'],
+                        },
+                        "factor": {
+                            "line=A": power_data['line_a_power_factor'],
+                            "line=B": power_data['line_b_power_factor'],
+                            "line=C": power_data['line_c_power_factor'],
+                        },
+                        "frequency": power_data['frequency'],
+                        "watts_active_total": power_data['total_active_power'],
+                        "watts_reactive_total": power_data['total_reactive_power'],
+                    },
                 )
                 last_readings['power_data_sent'] = True
                 send_failures = 0
@@ -199,7 +227,7 @@ async def main(
                 last_readings['power_data_exc'] = str(e)
                 print(f'No can send power data: {e}')
 
-            if watchdog is not None: watchdog.feed()
+            watchdog.feed()
         else:
             print("No power data to send, sorrey!")
 
@@ -212,12 +240,12 @@ async def main(
         left_to_wait_secs = send_interval - (time.time() - probe_start_time)
         
         # Don't forget to feed watchdog before the wait
-        if watchdog is not None: watchdog.feed()
+        watchdog.feed()
 
         await uasyncio.sleep(left_to_wait_secs)
 
 
-uasyncio.create_task(main(watchdog=watchdog))
+uasyncio.create_task(main(watchdog))
 
 print('Starting HTTP server')
 uasyncio.run(app.start_server())
