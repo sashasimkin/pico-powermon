@@ -150,8 +150,8 @@ async def main(
             power_data.update(power_meter.read_multiple('line_a_power_factor', 3))
             power_data.update({
                 'frequency': power_meter.read('frequency'),
-                'total_watts': power_meter.read('total_active_power'),
-                'total_watts_reactive': power_meter.read('total_reactive_power'),
+                'total_active_power': power_meter.read('total_active_power'),
+                'total_reactive_power': power_meter.read('total_reactive_power'),
             })
         except Exception as e:
             print(f'exception collecting power data: {e}', power_data)
@@ -216,8 +216,10 @@ async def main(
                             "line=C": power_data['line_c_power_factor'],
                         },
                         "frequency": power_data['frequency'],
-                        "watts_active_total": power_data['total_active_power'],
-                        "watts_reactive_total": power_data['total_reactive_power'],
+                        "watts_total": {
+                            "type=active": power_data['total_active_power'],
+                            "type=reactive": power_data['total_reactive_power'],
+                        },
                     },
                 )
                 last_readings['power_data_sent'] = True
