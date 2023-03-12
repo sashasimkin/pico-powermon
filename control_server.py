@@ -28,9 +28,9 @@ form_style = """<style>
 </style>"""
 
 table_style = """<style>
-.table { border-collapse: collapse;width: 100%;margin-bottom: 1rem;color: #212529; }
-.table th, .table td { padding: .75rem;text-align: left;border: 1px solid #dee2e6; }
-.table th { font-weight: bold;background-color: #f5f5f5; }
+.table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; color: #212529; }
+.table th, .table td { padding: .75rem; text-align: left; border: 1px solid #dee2e6; }
+.table th { font-weight: bold; background-color: #f5f5f5; }
 .table tr:nth-child(even) { background-color: #f2f2f2; }
 </style>"""
 
@@ -45,7 +45,10 @@ async def home(request):
     wlan_info     = f"<tr><td>WLAN IFCONFIG:</td><td>{request.app.wlan.ifconfig()}</td></tr>"
 
     return ''.join([
-        "<!DOCTYPE html><html><body><table>",
+        "<!DOCTYPE html><html>",
+        "<body>",
+        table_style,
+        '<table class="table">',
         uptime_status,
         last_readings,
         wlan_info,
@@ -56,6 +59,8 @@ async def home(request):
 
 async def machine_reset(delay=0.0):
     print(f"RESET requested, waiting for {delay}s first")
+    await uasyncio.sleep(delay)
+    print('RESETting')
     machine.reset()
 
 
@@ -91,8 +96,8 @@ async def configure(request):
         
         print("Writing updated config", updates)
         config.set_params(updates, blinks=3)
-        uasyncio.create_task(machine_reset(0.1))
-        return '<meta http-equiv="refresh" content="10">Resetting board... Will refresh in 10s', {'Content-Type': 'text/html'}
+        uasyncio.create_task(machine_reset(0.2))
+        return '<meta http-equiv="refresh" content="10">Saved! Resetting board... Will refresh in 10s', {'Content-Type': 'text/html'}
 
     form_data = '<form method="post">'
     for param, description, value in config.get_all_parameters():
@@ -103,7 +108,7 @@ async def configure(request):
     form_data += "<button>SUBMIT</button></form>"
 
     body = table_style + form_style + ''.join([
-        '<table><th><td>SCANNED WLANS</td></th>',
+        '<table class="table"><tr><th>SCANNED WLANS</th></tr>',
         ''.join([f'<tr><td>{ap}</td></tr>' for ap in request.app.wlan.scan()]),
         '</table>',
     ])
