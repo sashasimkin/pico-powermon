@@ -40,7 +40,7 @@ Upon first boot the hotspot PICO-POWERMON will be exposed.
 
 Connect to it with the `0987654321` password.
 
-Then open 192.168.4.0:5000 in browser and configure your installment.
+Then open http://192.168.4.1:5000 in browser and configure your installment.
 
 ## Assembly
 ToDo
