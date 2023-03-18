@@ -22,7 +22,7 @@ config = get_configurator()
 # We gotta signal boiiii
 led = Pin("LED", Pin.OUT)
 
-wlan_reset_pin = machine.Pin(19, Pin.IN, Pin.PULL_UP)
+wlan_reset_pin = machine.Pin(19, Pin.IN, Pin.PULL_UP, value=1)
 
 if wlan_reset_pin.value() == 0:
     # We want to reset the WiFi config - OK
@@ -107,6 +107,7 @@ async def main(
         probe_start_time = time.time()
 
         led.toggle()
+        watchdog.feed()
 
         print("entering probe process")
         
@@ -125,6 +126,7 @@ async def main(
         except Exception as e:
             print(f"failed to get temp/humidity: {e}")
         
+        led.toggle()
         watchdog.feed()
 
         if 'temperature' in env_data and 'humidity' in env_data:
@@ -140,6 +142,7 @@ async def main(
         else:
             print("skipping co2 probe because no temp/humidity data")
 
+        led.toggle()
         watchdog.feed()
 
         power_data = {}
@@ -157,6 +160,7 @@ async def main(
             print(f'exception collecting power data: {e}', power_data)
             print(e)
 
+        led.toggle()
         watchdog.feed()
 
         gc.collect()
@@ -176,6 +180,7 @@ async def main(
                 last_readings['env_data_exc'] = str(e)
                 print(f'No can send env data: {e}')
 
+            led.toggle()
             watchdog.feed()
         else:
             print("No environment data to send, sorrey!")
@@ -229,6 +234,7 @@ async def main(
                 last_readings['power_data_exc'] = str(e)
                 print(f'No can send power data: {e}')
 
+            led.toggle()
             watchdog.feed()
         else:
             print("No power data to send, sorrey!")
@@ -242,9 +248,14 @@ async def main(
         left_to_wait_secs = send_interval - (time.time() - probe_start_time)
         
         # Don't forget to feed watchdog before the wait
+        led.toggle()
         watchdog.feed()
 
-        await uasyncio.sleep(left_to_wait_secs)
+        # Sleep for N secs and pulse while doing it
+        for _ in range(left_to_wait_secs):
+            led.toggle()
+            watchdog.feed()
+            await uasyncio.sleep(1)
 
 
 uasyncio.create_task(main(watchdog))
