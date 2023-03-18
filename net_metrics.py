@@ -5,19 +5,24 @@ import urequests
 import gc
 
 
-def connect(ssid=None, password=None, wait_connection=True):
+def connect(ssid=None, password=None, wait_for_connection=20):
     # Connect to WLAN
     print(f"Connecting to SSID={ssid}")
     wlan = network.WLAN(network.STA_IF)
     
     wlan.active(True)
     wlan.connect(ssid, password)
-    if wait_connection:
-        while wlan.isconnected() == False:
-            print('Waiting for connection...')
+    for i in range(wait_for_connection):
+        if wlan.isconnected() == False:
+            print(f'[{i}] Waiting for connection...')
             time.sleep(1)
-    print('Connected!', wlan.ifconfig())
-    return wlan
+    
+    if wlan.isconnected():
+        print('Connected!', wlan.ifconfig())
+        return wlan
+    else:
+        wlan.disconnect()
+        return None
 
 
 def format_line_value(value):
