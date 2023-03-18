@@ -38,6 +38,8 @@ home_links = """
 <tr><td><a href="/configure">Configure to setup WIFI & metrics creds</a></td><td><a href="/reset">Reset pico</a></td></tr>
 """
 
+EXISTING_PASSWORD_STUB = '<existing>'
+
 @app.route('/')
 async def home(request):
     uptime_status = f"<tr><td>Uptime:</td><td>{time.time() - start_time} seconds</td></tr>"
@@ -86,13 +88,12 @@ async def configure(request):
                 print('No data for', param, 'skipping')
                 continue
             
-            value_type = type(current_or_default_value)
-            # We don't wanna override existing `None`s or passwords with empty strings
-            if new_value == '' and (value_type is type(None) or param.endswith('_password')):
+            # We have special value for passwords, to keep existing ones
+            if new_value == EXISTING_PASSWORD_STUB and param.endswith('_password'):
                 continue
-            
+
             # For the rest we coerce the type unless the current type is None
-            updates[param] = new_value if value_type is type(None) else value_type(new_value)
+            updates[param] = type(current_or_default_value)(new_value)
         
         print("Writing updated config", updates)
         config.set_params(updates, blinks=3)
@@ -101,7 +102,7 @@ async def configure(request):
 
     form_data = '<form method="post">'
     for param, description, value in config.get_all_parameters():
-        ivalue = "" if param.endswith("_password") or value is None else value
+        ivalue = EXISTING_PASSWORD_STUB if param.endswith("_password") else value
         iplaceholder = f"{param} value"
         form_data += f'<div class="form-group"><label for="{param}">{param}</label><span>{description}</span><input type="text" name="{param}" id="{param}" placeholder="{iplaceholder}" value="{ivalue}"></div>'
     

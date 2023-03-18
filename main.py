@@ -28,7 +28,7 @@ if wlan_reset_pin.value() == 0:
     # We want to reset the WiFi config - OK
     # Blink a few times first, then reset, then reboot
     print("Resetting WiFi configuration")
-    config.set_params({'wlan_ssid': None, 'wlan_password': None})
+    config.set_params({'wlan_ssid': '', 'wlan_password': ''})
 
 
 # Max value is 8388ms for RP2 chips
@@ -38,16 +38,23 @@ if wlan_reset_pin.value() == 0:
 watchdog = WatchdogTimer(timeout=config.get('watchdog_timeout', 60) * 1000)
 
 # We need them, internets
-if config.get('wlan_ssid', None) == None:  # If no SSID configured - we setup default AP in order to access configuration & stats
+# Try to connect first, wait for 30 secs for connection
+if config.get('wlan_ssid', '') != '':
+    app.wlan = connect(
+        ssid=config.get('wlan_ssid'),
+        password=config.get('wlan_password'),
+        wait_for_connection=30,
+    )
+
+# alternatively, if we're still not connected - setup build-in AP for checking the state
+if config.get('wlan_ssid', '') == '' or app.wlan is None:
+    # If no SSID configured - we setup default AP in order to access configuration & stats
+    print("Couldn't connect to network or no network configured, setting up AP to configure")
     ap = network.WLAN(network.AP_IF)
     ap.config(ssid='PICO-POWERMON', key='0987654321')
     app.wlan = ap
     ap.active(True)
-else:
-    app.wlan = connect(
-        ssid=config.get('wlan_ssid'),
-        password=config.get('wlan_password'),
-    )
+
 
 watchdog.feed()
 
@@ -183,7 +190,8 @@ async def main(
             led.toggle()
             watchdog.feed()
         else:
-            print("No environment data to send, sorrey!")
+            send_failures += 1
+            print("No environment data to send!")
         
         last_readings['power_data'] = power_data
         if power_data:
@@ -237,10 +245,12 @@ async def main(
             led.toggle()
             watchdog.feed()
         else:
-            print("No power data to send, sorrey!")
+            send_failures += 1
+            print("No power data to send!")
 
         # Don't let send failures happen more than failures_limit consecutively
-        if send_failures >= failures_limit:
+        # But only do it if WiFi connection is setup, otherwise just let it run
+        if config.get('wlan_ssid', '') != '' and send_failures >= failures_limit:
             print("Experienced 5 data send failures, resetting")
             machine.reset()
 

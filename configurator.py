@@ -11,10 +11,10 @@ _parameters = (
   ('metrics_instance',
    'URL of influx-capable metrics target',
    'https://influx-prod-06-prod-us-central-0.grafana.net/api/v1/push/influx/write'),
-  ('metrics_username', '', None),
-  ('metrics_password', '', None),
-  ('wlan_ssid', '', None),
-  ('wlan_password', '', None),
+  ('metrics_username', '', ''),
+  ('metrics_password', '', ''),
+  ('wlan_ssid', 'Leave empty to reset the WiFi', ''),
+  ('wlan_password', '', ''),
 )
 
 led = Pin("LED", Pin.OUT)
